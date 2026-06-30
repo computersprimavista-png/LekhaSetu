@@ -637,7 +637,7 @@ html { scroll-behavior: smooth; }
 // ═══ SUPABASE CONFIG ═══
 // Replace these with your actual values from Supabase Dashboard → Settings → API
 const SUPA_URL = 'https://uencfsulezphvjmybbcd.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlbmNmc3VsZXpwaHZqbXliYmNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NDUxODUsImV4cCI6MjA5ODAyMTE4NX0.Wm2HjojCQuf_mqBvVlyZJnGw24DvTCmGLbq_CRSkMqw'; // Replace with your anon key
+const SUPA_KEY = 'YOUR_ANON_KEY_HERE'; // Replace with your anon key
 
 const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 let supaUser = null; // logged in user
@@ -786,18 +786,32 @@ async function authRegister(){
 }
 
 async function authLogout(){
-  if(!confirm('Logout from your account?')) return;
   try { await supa.auth.signOut(); } catch(e){}
   localStorage.removeItem('supa_session');
+  localStorage.removeItem('app_pin'); // Clear PIN too on full logout
   supaUser = null; supaSession = null;
   location.reload();
 }
 
 function onAuthSuccess(){
   document.getElementById('auth-screen').style.display = 'none';
-  // Proceed to splash/pin flow
-  var splash = document.getElementById('lk-splash');
-  if(splash) splash.style.display = 'flex';
+  // Check if user has any company set up yet
+  loadCompanyData();
+  if(!companies.length){
+    // First time user - show welcome/create company screen
+    showWelcomeCompanySetup();
+  } else {
+    // Has company already - proceed to splash then PIN
+    var splash = document.getElementById('lk-splash');
+    if(splash) splash.style.display = 'flex';
+  }
+}
+
+function showWelcomeCompanySetup(){
+  var w = document.getElementById('welcome-setup-screen');
+  if(w){
+    w.style.display = 'flex';
+  }
 }
 
 async function checkExistingSession(){
@@ -812,16 +826,61 @@ async function checkExistingSession(){
       if(result.data && result.data.session){
         supaUser = result.data.user;
         supaSession = result.data.session;
-        onAuthSuccess();
+        // Existing session - skip splash, go straight to PIN (quick unlock)
+        onReturningUser();
         return true;
       }
     } catch(e){}
   }
-  // No valid session - show auth screen
+  // No valid session - show auth screen (fresh login required)
   document.getElementById('auth-screen').style.display = 'flex';
   var splash = document.getElementById('lk-splash');
   if(splash) splash.style.display = 'none';
   return false;
+}
+
+function onReturningUser(){
+  // User already has a valid session - skip splash animation, go straight to PIN
+  document.getElementById('auth-screen').style.display = 'none';
+  var splash = document.getElementById('lk-splash');
+  if(splash) splash.style.display = 'none';
+  var pin = document.getElementById('pin-screen');
+  if(pin){
+    pin.style.display = 'flex';
+    if(typeof initPin === 'function') initPin();
+  }
+}
+
+function createFirstCompany(){
+  var name  = document.getElementById('welcome-co-name').value.trim();
+  var gst   = document.getElementById('welcome-co-gst').value.trim();
+  var phone = document.getElementById('welcome-co-phone').value.trim();
+  var addr  = document.getElementById('welcome-co-addr').value.trim();
+  var errEl = document.getElementById('welcome-error');
+  errEl.textContent = '';
+
+  if(!name){ errEl.textContent = 'Company name is required'; return; }
+
+  var co = {
+    id: 'co_'+Date.now(),
+    name: name,
+    gst: gst.toUpperCase(),
+    addr: addr,
+    phone: phone,
+    email:'', bank:'', accno:'', ifsc:'', upi:'',
+    prefix:'SAL', template:2, state:''
+  };
+  companies.push(co);
+  saveG('companies', companies);
+  switchCompany(co.id);
+  updateCompanySwitcher();
+
+  // Hide welcome screen, proceed to splash
+  document.getElementById('welcome-setup-screen').style.display = 'none';
+  var splash = document.getElementById('lk-splash');
+  if(splash) splash.style.display = 'flex';
+
+  toast('\u2705 Company created! Welcome aboard.');
 }
 
 // Run on page load
@@ -829,6 +888,47 @@ window.addEventListener('DOMContentLoaded', function(){
   checkExistingSession();
 });
 </script>
+
+<!-- ══ WELCOME / CREATE COMPANY SCREEN ══ -->
+<div id="welcome-setup-screen" style="display:none;position:fixed;inset:0;z-index:9999998;background:linear-gradient(160deg,#0f0c29,#302b63,#24243e);align-items:center;justify-content:center;font-family:'Segoe UI',sans-serif;">
+  <div style="width:min(460px,92vw);text-align:center;">
+    <div style="margin-bottom:24px;">
+      <div style="font-size:40px;margin-bottom:10px;">&#x1F389;</div>
+      <div style="font-size:24px;font-weight:800;color:white;margin-bottom:6px;">Welcome to LekhaSETU!</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.55);">Let's set up your company profile to get started</div>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.07);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.4);text-align:left;">
+
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;">Company Name *</label>
+        <input id="welcome-co-name" type="text" placeholder="e.g. Sharma Traders" style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;color:white;font-size:14px;outline:none;box-sizing:border-box;">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div>
+          <label style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;">GST Number</label>
+          <input id="welcome-co-gst" type="text" placeholder="Optional" style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;color:white;font-size:14px;outline:none;box-sizing:border-box;text-transform:uppercase;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;">Phone</label>
+          <input id="welcome-co-phone" type="text" placeholder="Optional" style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;color:white;font-size:14px;outline:none;box-sizing:border-box;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <label style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;">Address</label>
+        <input id="welcome-co-addr" type="text" placeholder="Optional" style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;color:white;font-size:14px;outline:none;box-sizing:border-box;">
+      </div>
+
+      <div id="welcome-error" style="color:#fc8181;font-size:12px;min-height:16px;margin-bottom:12px;"></div>
+
+      <button onclick="createFirstCompany()" style="width:100%;padding:13px;background:linear-gradient(135deg,#f6d365,#fda085);border:none;border-radius:10px;font-size:15px;font-weight:700;color:#302b63;cursor:pointer;letter-spacing:.5px;">&#x2728; Create My Company &amp; Continue</button>
+    </div>
+
+    <div style="margin-top:16px;font-size:11px;color:rgba(255,255,255,0.3);">You can add more details and switch companies later from Settings</div>
+  </div>
+</div>
 
 <!-- ══ PIN LOCK SCREEN ══ -->
 <style>
@@ -1101,8 +1201,11 @@ window.addEventListener('DOMContentLoaded', function() {
     <div id="timeout-indicator" style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.45);">
       <span>⏱</span><span id="timeout-label">10:00</span>
     </div>
-    <button onclick="logoutApp()" style="display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;border:1.5px solid rgba(255,100,100,0.4);background:rgba(255,100,100,0.1);color:rgba(255,200,200,0.85);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;" onmouseover="this.style.background='rgba(255,100,100,0.25)'" onmouseout="this.style.background='rgba(255,100,100,0.1)'">
-      🔒 Logout
+    <button onclick="quickLock()" title="Lock screen with PIN" style="display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;border:1.5px solid rgba(246,211,101,0.4);background:rgba(246,211,101,0.1);color:rgba(255,230,170,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;" onmouseover="this.style.background='rgba(246,211,101,0.25)'" onmouseout="this.style.background='rgba(246,211,101,0.1)'">
+      🔒 Lock
+    </button>
+    <button onclick="fullLogout()" title="Sign out completely" style="display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;border:1.5px solid rgba(255,100,100,0.4);background:rgba(255,100,100,0.1);color:rgba(255,200,200,0.85);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;" onmouseover="this.style.background='rgba(255,100,100,0.25)'" onmouseout="this.style.background='rgba(255,100,100,0.1)'">
+      🚪 Logout
     </button>
   </div>
 </nav>
@@ -4031,17 +4134,23 @@ function lockApp(){
   }
 }
 
+function quickLock(){
+  // Just lock the screen with PIN - session stays active
+  lockApp();
+  setTimeout(function(){
+    var errEl = document.getElementById('pin-error');
+    if(errEl) errEl.textContent = '';
+  }, 100);
+}
+
+function fullLogout(){
+  if(!confirm('Are you sure you want to logout completely?\nYou will need to login again with email and password.')) return;
+  authLogout();
+}
+
+// Keep old name as alias for compatibility (auto-timeout calls this)
 function logoutApp(){
-  var choice = confirm('Click OK to fully logout from your account.\nClick Cancel to just lock the screen (PIN).');
-  if(choice){
-    authLogout();
-  } else {
-    lockApp();
-    setTimeout(function(){
-      var errEl = document.getElementById('pin-error');
-      if(errEl) errEl.textContent = '';
-    }, 100);
-  }
+  quickLock();
 }
 
 // ═══ IMPORT / EXPORT ═══
